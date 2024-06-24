@@ -18,6 +18,7 @@ environment:
   - PYTHON: 38
   - PYTHON: 39
   - PYTHON: 310
+  - PYTHON: 311
   pypipassword:
     # https://ci.appveyor.com/tools/encrypt
     secure: 7hxZ+XinYPLuIS1aHZbTcA==
@@ -25,8 +26,8 @@ install:
 - cmd: '"c:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvarsall.bat" %PLATFORM%'
 - cmd: git config core.symlinks true
 - cmd: git reset --hard
-- ps: Remove-Item -Recurse -Force C:/cygwin
-- ps: Remove-Item -Recurse -Force C:/cygwin64
+- cmd: rmdir C:\cygwin /s /q
+- cmd: rmdir C:\cygwin64 /s /q
 - ps: |
     if ($env:PYTHON) {
       if ($env:PLATFORM -eq "x64") { $env:PYTHON = "$env:PYTHON-x64" }

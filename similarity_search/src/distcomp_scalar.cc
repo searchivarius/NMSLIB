@@ -21,7 +21,6 @@
 #include <limits>
 #include <algorithm>
 
-
 namespace similarity {
 
 using namespace std;
