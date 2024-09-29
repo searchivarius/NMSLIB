@@ -63,6 +63,9 @@ class Query;
 template <typename dist_t>
 class KNNQuery;
 
+    template <typename dist_t>
+class HNSWQuery;
+
 template <typename dist_t>
 class RangeQuery;
 
@@ -263,6 +266,7 @@ class Space {
   friend class Query<dist_t>;
   friend class RangeQuery<dist_t>;
   friend class KNNQuery<dist_t>;
+  friend class HNSWQuery<dist_t>;
   friend class Experiments<dist_t>;
   /* 
    * This function is private, but it will be accessible by the friend class Query

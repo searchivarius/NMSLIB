@@ -474,6 +474,7 @@ namespace similarity {
         void baseSearchAlgorithmV1Merge(KNNQuery<dist_t> *query);
         void SearchOld(KNNQuery<dist_t> *query, bool normalize);
         void SearchV1Merge(KNNQuery<dist_t> *query, bool normalize);
+        size_t extractEf(KNNQuery<dist_t> *query, size_t defaultEf) const;
 
         int getRandomLevel(double revSize)
         {

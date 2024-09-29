@@ -46,6 +46,7 @@
 #include <typeinfo>
 #include <vector>
 
+#include "hnswquery.h"
 #include "sort_arr_bi.h"
 #define MERGE_BUFFER_ALGO_SWITCH_THRESHOLD 100
 
@@ -101,9 +102,16 @@ namespace similarity {
         return nullptr;
     }
 
+    template <typename dist_t>
+    size_t Hnsw<dist_t>::extractEf(KNNQuery<dist_t>* searchQuery, size_t defaultEf) const {
+        auto* hnswQueryPtr = dynamic_cast<HNSWQuery<dist_t>*>(searchQuery);
+        if (hnswQueryPtr) {
+            return hnswQueryPtr->getEf();
+        }
+        return defaultEf;
+    }
 
-
-// This is the counter to keep the size of neighborhood information (for one node)
+    // This is the counter to keep the size of neighborhood information (for one node)
     // TODO Can this one overflow? I really doubt
     typedef uint32_t SIZEMASS_TYPE;
 
@@ -718,10 +726,11 @@ namespace similarity {
     void
     Hnsw<dist_t>::Search(KNNQuery<dist_t> *query, IdType) const
     {
+        size_t ef = this->extractEf(query, ef_);
         if (this->data_.empty() && this->data_rearranged_.empty()) {
           return;
         }
-        bool useOld = searchAlgoType_ == kOld || (searchAlgoType_ == kHybrid && ef_ >= 1000);
+        bool useOld = searchAlgoType_ == kOld || (searchAlgoType_ == kHybrid && ef >= 1000);
         // cout << "Ef = " << ef_ << " use old = " << useOld << endl;
         switch (searchMethod_) {
         case 0:
@@ -1148,6 +1157,7 @@ namespace similarity {
                 PREFETCH((char *)(massVisited + (*iter)->getId()), _MM_HINT_T0);
             }
             // calculate distance to each neighbor
+            size_t ef = this->extractEf(query, ef_);
             for (auto iter = neighbor.begin(); iter != neighbor.end(); ++iter) {
                 curId = (*iter)->getId();
 
@@ -1155,12 +1165,12 @@ namespace similarity {
                     massVisited[curId] = currentV;
                     currObj = (*iter)->getData();
                     d = query->DistanceObjLeft(currObj);
-                    if (closestDistQueue1.top().getDistance() > d || closestDistQueue1.size() < ef_) {
+                    if (closestDistQueue1.top().getDistance() > d || closestDistQueue1.size() < ef) {
                         {
                             query->CheckAndAddToResult(d, currObj);
                             candidateQueue.emplace(d, *iter);
                             closestDistQueue1.emplace(d, *iter);
-                            if (closestDistQueue1.size() > ef_) {
+                            if (closestDistQueue1.size() > ef) {
                                 closestDistQueue1.pop();
                             }
                         }
@@ -1185,6 +1195,7 @@ namespace similarity {
 
         const Object *currObj = provider->getData();
 
+            size_t ef = this->extractEf(query, ef_);
         dist_t d = query->DistanceObjLeft(currObj);
         dist_t curdist = d;
         HnswNode *curNode = provider;
@@ -1209,7 +1220,7 @@ namespace similarity {
             }
         }
 
-        SortArrBI<dist_t, HnswNode *> sortedArr(max<size_t>(ef_, query->GetK()));
+        SortArrBI<dist_t, HnswNode *> sortedArr(max<size_t>(ef, query->GetK()));
         sortedArr.push_unsorted_grow(curdist, curNode);
 
         int_fast32_t currElem = 0;
@@ -1225,8 +1236,7 @@ namespace similarity {
         // PHASE TWO OF THE SEARCH
         // Extraction of the neighborhood to find k nearest neighbors.
         ////////////////////////////////////////////////////////////////////////////////
-
-        while (currElem < min(sortedArr.size(), ef_)) {
+        while (currElem < min(sortedArr.size(), ef)) {
             auto &e = queueData[currElem];
             CHECK(!e.used);
             e.used = true;
@@ -1255,7 +1265,7 @@ namespace similarity {
                     currObj = (*iter)->getData();
                     d = query->DistanceObjLeft(currObj);
 
-                    if (d < topKey || sortedArr.size() < ef_) {
+                    if (d < topKey || sortedArr.size() < ef) {
                         CHECK_MSG(itemBuff.size() > itemQty,
                                   "Perhaps a bug: buffer size is not enough " + 
                                   ConvertToString(itemQty) + " >= " + ConvertToString(itemBuff.size()));

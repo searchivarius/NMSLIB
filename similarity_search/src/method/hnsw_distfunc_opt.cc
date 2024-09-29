@@ -120,6 +120,7 @@ namespace similarity {
             PREFETCH(data_level0_memory_ + (*(data + 1)) * memoryPerObject_ + offsetData_, _MM_HINT_T0);
             PREFETCH((char *)(data + 2), _MM_HINT_T0);
 
+            size_t ef = this->extractEf(query, ef_);
             for (int j = 1; j <= size; j++) {
                 int tnum = *(data + j);
                 PREFETCH((char *)(massVisited + *(data + j + 1)), _MM_HINT_T0);
@@ -131,7 +132,7 @@ namespace similarity {
                     massVisited[tnum] = currentV;
                     char *currObj1 = (data_level0_memory_ + tnum * memoryPerObject_ + offsetData_);
                     dist_t d = (fstdistfunc_(pVectq, (float *)(currObj1 + 16), qty, TmpRes));
-                    if (closestDistQueuei.top().getDistance() > d || closestDistQueuei.size() < ef_) {
+                    if (closestDistQueuei.top().getDistance() > d || closestDistQueuei.size() < ef) {
                         candidateQueuei.emplace(-d, tnum);
                         PREFETCH(data_level0_memory_ + candidateQueuei.top().element * memoryPerObject_ + offsetLevel0_,
                                      _MM_HINT_T0);
@@ -139,7 +140,7 @@ namespace similarity {
                         query->CheckAndAddToResult(d, data_rearranged_[tnum]);
                         closestDistQueuei.emplace(d, tnum);
 
-                        if (closestDistQueuei.size() > ef_) {
+                        if (closestDistQueuei.size() > ef) {
                             closestDistQueuei.pop();
                         }
                     }
@@ -153,6 +154,7 @@ namespace similarity {
     void
     Hnsw<dist_t>::SearchV1Merge(KNNQuery<dist_t> *query, bool normalize)
     {
+        size_t ef = this->extractEf(query, ef_);
         float *pVectq = (float *)((char *)query->QueryObject()->data());
         TMP_RES_ARRAY(TmpRes);
         size_t qty = query->QueryObject()->datalength() >> 2;
@@ -197,7 +199,7 @@ namespace similarity {
             }
         }
 
-        SortArrBI<dist_t, int> sortedArr(max<size_t>(ef_, query->GetK()));
+        SortArrBI<dist_t, int> sortedArr(max<size_t>(ef, query->GetK()));
         sortedArr.push_unsorted_grow(curdist, curNodeNum);
 
         int_fast32_t currElem = 0;
@@ -208,7 +210,7 @@ namespace similarity {
 
         massVisited[curNodeNum] = currentV;
 
-        while (currElem < min(sortedArr.size(), ef_)) {
+        while (currElem < min(sortedArr.size(), ef)) {
             auto &e = queueData[currElem];
             CHECK(!e.used);
             e.used = true;
@@ -237,7 +239,7 @@ namespace similarity {
                     char *currObj1 = (data_level0_memory_ + tnum * memoryPerObject_ + offsetData_);
                     dist_t d = (fstdistfunc_(pVectq, (float *)(currObj1 + 16), qty, TmpRes));
 
-                    if (d < topKey || sortedArr.size() < ef_) {
+                    if (d < topKey || sortedArr.size() < ef) {
                         CHECK_MSG(itemBuff.size() > itemQty,
                                   "Perhaps a bug: buffer size is not enough " + 
                                   ConvertToString(itemQty) + " >= " + ConvertToString(itemBuff.size()));
