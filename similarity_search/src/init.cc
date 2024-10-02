@@ -34,10 +34,10 @@ namespace similarity {
 int                                                 defaultRandomSeed = 0;
 thread_local std::unique_ptr<RandomGeneratorType>   randomGen;
 
-void initLibrary(int seed, LogChoice choice, const char* pLogFile) {
+void initLibrary(int seed, LogChoice choice, const char* pLogFile, bool syncWithStdIO = false) {
   defaultRandomSeed = seed;
 
-  std::ios_base::sync_with_stdio(false);
+  std::ios_base::sync_with_stdio(syncWithStdIO);
   InitializeLogger(choice, pLogFile);
   initSpaces();
   initMethods();
