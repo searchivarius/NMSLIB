@@ -37,20 +37,20 @@ using namespace std;
 
 /** Standard functions to read/write/create objects */ 
 
-template <typename dist_t>
-unique_ptr<DataFileInputState> VectorSpace<dist_t>::OpenReadFileHeader(const string& inpFileName) const {
+template <typename dist_t, typename dist_uint_t>
+unique_ptr<DataFileInputState> VectorSpace<dist_t, dist_uint_t>::OpenReadFileHeader(const string& inpFileName) const {
   return unique_ptr<DataFileInputState>(new DataFileInputStateVec(inpFileName));
 }
 
-template <typename dist_t>
-unique_ptr<DataFileOutputState> VectorSpace<dist_t>::OpenWriteFileHeader(const ObjectVector& dataset,
+template <typename dist_t, typename dist_uint_t>
+unique_ptr<DataFileOutputState> VectorSpace<dist_t, dist_uint_t>::OpenWriteFileHeader(const ObjectVector& dataset,
                                                                          const string& outFileName) const {
   return unique_ptr<DataFileOutputState>(new DataFileOutputState(outFileName));
 }
 
-template <typename dist_t>
+template <typename dist_t, typename dist_uint_t>
 unique_ptr<Object> 
-VectorSpace<dist_t>::CreateObjFromStr(IdType id, LabelType label, const string& s,
+VectorSpace<dist_t, dist_uint_t>::CreateObjFromStr(IdType id, LabelType label, const string& s,
                                             DataFileInputState* pInpStateBase) const {
   DataFileInputStateVec*  pInpState = NULL;
   if (pInpStateBase != NULL) {
@@ -60,7 +60,7 @@ VectorSpace<dist_t>::CreateObjFromStr(IdType id, LabelType label, const string& 
       THROW_RUNTIME_ERR(err);
     }
   }
-  vector<dist_t>  vec;
+  vector<dist_uint_t>  vec;
   ReadVec(s, label, vec);
   if (pInpState != NULL) {
     if (pInpState->dim_ == 0) pInpState->dim_ = vec.size();
@@ -75,10 +75,10 @@ VectorSpace<dist_t>::CreateObjFromStr(IdType id, LabelType label, const string& 
   return unique_ptr<Object>(CreateObjFromVect(id, label, vec));
 }
 
-template <typename dist_t>
-bool VectorSpace<dist_t>::ApproxEqual(const Object& obj1, const Object& obj2) const {
-  const dist_t* p1 = reinterpret_cast<const dist_t*>(obj1.data());
-  const dist_t* p2 = reinterpret_cast<const dist_t*>(obj2.data());
+template <typename dist_t, typename dist_uint_t>
+bool VectorSpace<dist_t, dist_uint_t>::ApproxEqual(const Object& obj1, const Object& obj2) const {
+  const dist_uint_t *p1 = reinterpret_cast<const dist_uint_t *>(obj1.data());
+  const dist_uint_t *p2 = reinterpret_cast<const dist_uint_t *>(obj2.data());
   const size_t len1 = GetElemQty(&obj1);
   const size_t len2 = GetElemQty(&obj2);
   if (len1 != len2) {
@@ -92,10 +92,10 @@ bool VectorSpace<dist_t>::ApproxEqual(const Object& obj1, const Object& obj2) co
   return true;
 }
 
-template <typename dist_t>
-string VectorSpace<dist_t>::CreateStrFromObj(const Object* pObj, const string& externId /* ignored */) const {
+template <typename dist_t, typename dist_uint_t>
+string VectorSpace<dist_t, dist_uint_t>::CreateStrFromObj(const Object* pObj, const string& externId /* ignored */) const {
   stringstream out;
-  const dist_t* p = reinterpret_cast<const dist_t*>(pObj->data());
+  const dist_uint_t *p = reinterpret_cast<const dist_uint_t *>(pObj->data());
   const size_t length = GetElemQty(pObj);
   for (size_t i = 0; i < length; ++i) {
     if (i) out << " ";
@@ -107,8 +107,8 @@ string VectorSpace<dist_t>::CreateStrFromObj(const Object* pObj, const string& e
   return out.str();
 }
 
-template <typename dist_t>
-bool VectorSpace<dist_t>::ReadNextObjStr(DataFileInputState &inpStateBase, string& strObj, LabelType& label, string& externId) const {
+template <typename dist_t, typename dist_uint_t>
+bool VectorSpace<dist_t, dist_uint_t>::ReadNextObjStr(DataFileInputState &inpStateBase, string& strObj, LabelType& label, string& externId) const {
   externId.clear();
   DataFileInputStateOneFile* pInpState = dynamic_cast<DataFileInputStateOneFile*>(&inpStateBase);
   CHECK_MSG(pInpState != NULL, "Bug: unexpected pointer type");
@@ -118,10 +118,10 @@ bool VectorSpace<dist_t>::ReadNextObjStr(DataFileInputState &inpStateBase, strin
   return true;
 }
 
-/** End of standard functions to read/write/create objects */ 
+/** End of standard functions to read/write/create objects */
 
-template <typename dist_t>
-void VectorSpace<dist_t>::ReadVec(string line, LabelType& label, vector<dist_t>& v)
+template <typename dist_t, typename dist_uint_t>
+void VectorSpace<dist_t, dist_uint_t>::ReadVec(string line, LabelType &label, vector<dist_uint_t> &v)
 {
   v.clear();
 
@@ -138,11 +138,12 @@ void VectorSpace<dist_t>::ReadVec(string line, LabelType& label, vector<dist_t>&
   }
 }
 
-template <typename dist_t>
-Object* VectorSpace<dist_t>::CreateObjFromVect(IdType id, LabelType label, const vector<dist_t>& InpVect) const {
-  return new Object(id, label, InpVect.size() * sizeof(dist_t), &InpVect[0]);
+template <typename dist_t, typename dist_uint_t>
+Object* VectorSpace<dist_t, dist_uint_t>::CreateObjFromVect(IdType id, LabelType label, const vector<dist_uint_t>& InpVect) const {
+  return new Object(id, label, InpVect.size() * sizeof(dist_uint_t), &InpVect[0]);
 };
 
+template class VectorSpace<float, PivotIdType>;
 template class VectorSpace<PivotIdType>;
 template class VectorSpace<float>;
 

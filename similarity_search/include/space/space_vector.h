@@ -32,7 +32,7 @@ namespace similarity {
 using std::string;
 using std::unique_ptr;
 
-template <typename dist_t>
+template <typename dist_t, typename dist_uint_t = dist_t>
 class VectorSpace : public Space<dist_t> {
  public:
   explicit VectorSpace() {}
@@ -61,12 +61,12 @@ class VectorSpace : public Space<dist_t> {
    */
   virtual bool ApproxEqual(const Object& obj1, const Object& obj2) const;
 
-  virtual Object* CreateObjFromVect(IdType id, LabelType label, const std::vector<dist_t>& InpVect) const;
+  virtual Object* CreateObjFromVect(IdType id, LabelType label, const std::vector<dist_uint_t>& InpVect) const;
   virtual size_t GetElemQty(const Object* object) const = 0;
-  virtual void CreateDenseVectFromObj(const Object* obj, dist_t* pVect,
-                                 size_t nElem) const = 0;
+  virtual void CreateDenseVectFromObj(const Object *obj, dist_uint_t *pVect,
+                                      size_t nElem) const = 0;
 
-  static void ReadVec(std::string line, LabelType& label, std::vector<dist_t>& v);
+  static void ReadVec(std::string line, LabelType &label, std::vector<dist_uint_t> &v);
 
 protected:
   DISABLE_COPY_AND_ASSIGN(VectorSpace);
@@ -74,9 +74,9 @@ protected:
   virtual dist_t HiddenDistance(const Object* obj1, const Object* obj2) const = 0;
 
   void CreateVectFromObjSimpleStorage(const char *pFuncName,
-                                 const Object* obj, dist_t* pDstVect,
+                                 const Object* obj, dist_uint_t* pDstVect,
                                  size_t nElem) const {
-    const dist_t* pSrcVec = reinterpret_cast<const dist_t*>(obj->data());
+    const dist_uint_t *pSrcVec = reinterpret_cast<const dist_uint_t *>(obj->data());
     const size_t len = GetElemQty(obj);
     if (nElem > len) {
       std::stringstream err;
@@ -88,18 +88,19 @@ protected:
   }
 };
 
-template <typename dist_t>
-class VectorSpaceSimpleStorage : public VectorSpace<dist_t> {
- public:
+template <typename dist_t, typename dist_uint_t = dist_t>
+class VectorSpaceSimpleStorage : public VectorSpace<dist_t, dist_uint_t>
+{
+public:
   virtual ~VectorSpaceSimpleStorage() {}
   explicit VectorSpaceSimpleStorage() {}
   virtual size_t GetElemQty(const Object* object) const {
     // We expect division by 2^n to be implemented efficiently by the compiler
-    return object->datalength()/ sizeof(dist_t);
+    return object->datalength()/ sizeof(dist_uint_t);
   }
-  virtual void CreateDenseVectFromObj(const Object* obj, dist_t* pDstVect,
+  virtual void CreateDenseVectFromObj(const Object* obj, dist_uint_t* pDstVect,
                                  size_t nElem) const {
-    VectorSpace<dist_t>::
+    VectorSpace<dist_t, dist_uint_t>::
                 CreateVectFromObjSimpleStorage(__func__, obj, pDstVect, nElem);
   }
 private:

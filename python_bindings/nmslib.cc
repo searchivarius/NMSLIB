@@ -46,7 +46,8 @@ const char* data_suff = ".dat";
 
 enum DistType {
   DISTTYPE_FLOAT,
-  DISTTYPE_INT
+  DISTTYPE_INT,
+  DISTTYPE_DEFAULT
 };
 
 enum DataType {
@@ -57,24 +58,25 @@ enum DataType {
 };
 
 // forward references
-template <typename dist_t> void exportIndex(py::module * m);
-template <typename dist_t> std::string distName();
+template <typename dist_t, typename dist_uint_t = dist_t> void exportIndex(py::module * m);
+template <typename dist_t, typename dist_uint_t = dist_t> std::string distName();
 AnyParams loadParams(py::object o);
 void exportLegacyAPI(py::module * m);
 void freeAndClearObjectVector(ObjectVector& data);
 
 // Wrap a space/objectvector/index together for ease of use
-template <typename dist_t>
+template <typename dist_t, typename dist_uint_t = dist_t>
 struct IndexWrapper {
   IndexWrapper(const std::string & method,
         const std::string & space_type,
         py::object space_params,
         DataType data_type,
-        DistType dist_type)
-      : method(method), space_type(space_type), data_type(data_type), dist_type(dist_type),
+        DistType dist_type,
+        DistType dist_uint_type)
+      : method(method), space_type(space_type), data_type(data_type), dist_type(dist_type), dist_uint_type(dist_uint_type),
         space(SpaceFactoryRegistry<dist_t>::Instance().CreateSpace(space_type,
                                                                    loadParams(space_params))) {
-    auto vectSpacePtr = dynamic_cast<VectorSpace<dist_t>*>(space.get());
+    auto vectSpacePtr = dynamic_cast<VectorSpace<dist_t, dist_uint_t>*>(space.get());
     if (data_type == DATATYPE_DENSE_VECTOR && vectSpacePtr == nullptr) {
       throw std::invalid_argument("The space type " + space_type +
                                   " is not compatible with the type DENSE_VECTOR, only dense vector spaces are allowed!");
@@ -186,12 +188,12 @@ struct IndexWrapper {
   const Object * readObject(py::object input, int id = 0) {
     switch (data_type) {
       case DATATYPE_DENSE_VECTOR: {
-        py::array_t<dist_t, py::array::c_style | py::array::forcecast> temp(input);
-        std::vector<dist_t> tempVect(temp.data(0), temp.data(0) + temp.size());
-        auto vectSpacePtr = reinterpret_cast<VectorSpace<dist_t>*>(space.get());
+        py::array_t<dist_uint_t, py::array::c_style | py::array::forcecast> temp(input);
+        std::vector<dist_uint_t> tempVect(temp.data(0), temp.data(0) + temp.size());
+        auto vectSpacePtr = reinterpret_cast<VectorSpace<dist_t, dist_uint_t> *>(space.get());
         return vectSpacePtr->CreateObjFromVect(id, -1, tempVect);
         // This way it will not always work properly
-        //return new Object(id, -1, temp.size() * sizeof(dist_t), temp.data(0));
+        //return new Object(id, -1, temp.size() * sizeof(dist_uint_t), temp.data(0));
       }
       case DATATYPE_DENSE_UINT8_VECTOR: {
         py::array_t<uint8_t> temp(input);
@@ -239,16 +241,16 @@ struct IndexWrapper {
 
     } else if (data_type == DATATYPE_DENSE_VECTOR) {
       // allow numpy arrays to be returned here too
-      py::array_t<dist_t, py::array::c_style | py::array::forcecast> items(input);
+      py::array_t<dist_uint_t, py::array::c_style | py::array::forcecast> items(input);
       auto buffer = items.request();
       if (buffer.ndim != 2) throw std::runtime_error("data must be a 2d array");
 
       size_t rows = buffer.shape[0], features = buffer.shape[1];
-      std::vector<dist_t> tempVect(features);
-      auto vectSpacePtr = reinterpret_cast<VectorSpace<dist_t>*>(space.get());
+      std::vector<dist_uint_t> tempVect(features);
+      auto vectSpacePtr = reinterpret_cast<VectorSpace<dist_t, dist_uint_t>*>(space.get());
       for (size_t row = 0; row < rows; ++row) {
         int id = ids.size() ? ids.at(row) : row;
-        const dist_t* elemVecStart = items.data(row);
+        const dist_uint_t *elemVecStart = items.data(row);
         std::copy(elemVecStart, elemVecStart + features, tempVect.begin());
         output->push_back(vectSpacePtr->CreateObjFromVect(id, -1, tempVect));
         //this way it won't always work properly
@@ -308,9 +310,9 @@ struct IndexWrapper {
   py::object writeObject(const Object * obj) {
     switch (data_type) {
       case DATATYPE_DENSE_VECTOR: {
-        auto vectSpacePtr = reinterpret_cast<VectorSpace<dist_t>*>(space.get());
+        auto vectSpacePtr = reinterpret_cast<VectorSpace<dist_t, dist_uint_t>*>(space.get());
         py::list ret;
-        const dist_t * values = reinterpret_cast<const dist_t *>(obj->data());
+        const dist_uint_t *values = reinterpret_cast<const dist_uint_t *>(obj->data());
         size_t elemQty = vectSpacePtr->GetElemQty(obj);
         for (size_t i = 0; i < elemQty; ++i) {
           ret.append(py::cast(values[i]));
@@ -354,7 +356,7 @@ struct IndexWrapper {
 
   std::string repr() const {
     std::stringstream ret;
-    ret << "<" << module_name << "." << distName<dist_t>() << "Index method='" << method
+    ret << "<" << module_name << "." << distName<dist_t, dist_uint_t>() << "Index method='" << method
         << "' space='" << space_type <<  "' at " << this << ">";
     return ret.str();
   }
@@ -370,6 +372,7 @@ struct IndexWrapper {
   std::string space_type;
   DataType data_type;
   DistType dist_type;
+  DistType dist_uint_type;
   std::unique_ptr<Space<dist_t>> space;
   std::unique_ptr<Index<dist_t>> index;
   ObjectVector data;
@@ -477,47 +480,57 @@ PYBIND11_PLUGIN(nmslib) {
 
   // Initializes a new index. Param ordering here is set to be consistent with the previous
   // version of the bindings
-  m.def("init",
-    [](const std::string & space, py::object space_params, const std::string & method,
-       DataType data_type, DistType dtype) {
-      py::object ret = py::none();
-      switch (dtype) {
-        case DISTTYPE_FLOAT: {
-          auto index = new IndexWrapper<float>(method, space, space_params, data_type, dtype);
-          ret = py::cast(index, py::return_value_policy::take_ownership);
-          break;
+  m.def(
+      "init",
+      [](const std::string &space, py::object space_params, const std::string &method,
+         DataType data_type, DistType dtype, DistType distUintType)
+      {
+        if (DISTTYPE_DEFAULT == distUintType)
+        {
+          distUintType = dtype;
         }
-        case DISTTYPE_INT: {
-          auto index = new IndexWrapper<int>(method, space, space_params, data_type, dtype);
+
+        py::object ret = py::none();
+        if (DISTTYPE_FLOAT == dtype && DISTTYPE_FLOAT == distUintType) {
+          auto index = new IndexWrapper<float, float>(method, space, space_params, data_type, dtype, distUintType);
           ret = py::cast(index, py::return_value_policy::take_ownership);
-          break;
-        }
-        default:
+        } else if (DISTTYPE_FLOAT == dtype && DISTTYPE_INT == distUintType) {
+          auto index = new IndexWrapper<float, int>(method, space, space_params, data_type, dtype, distUintType);
+          ret = py::cast(index, py::return_value_policy::take_ownership);
+        } else if (DISTTYPE_INT == dtype && DISTTYPE_FLOAT == distUintType) {
+          auto index = new IndexWrapper<int, float>(method, space, space_params, data_type, dtype, distUintType);
+          ret = py::cast(index, py::return_value_policy::take_ownership);
+        } else if (DISTTYPE_INT == dtype && DISTTYPE_INT == distUintType) {
+          auto index = new IndexWrapper<int, int>(method, space, space_params, data_type, dtype, distUintType);
+          ret = py::cast(index, py::return_value_policy::take_ownership);
+        } else {
           // should never happen
           throw std::invalid_argument("Invalid DistType");
-      }
-      return ret;
-    },
-    py::arg("space") = "cosinesimil",
-    py::arg("space_params") = py::none(),
-    py::arg("method") = "hnsw",
-    py::arg("data_type") = DATATYPE_DENSE_VECTOR,
-    py::arg("dtype") = DISTTYPE_FLOAT,
-    "This function initializes a new NMSLIB index\n\n"
-    "Parameters\n"
-    "----------\n"
-    "space: str optional\n"
-    "    The metric space to create for this index\n"
-    "space_params: dict optional\n"
-    "    Parameters for configuring the space\n"
-    "method: str optional\n"
-    "    The index method to use\n"
-    "data_type: nmslib.DataType optional\n"
-    "    The type of data to index (dense/sparse/string vectors)\n"
-    "\n"
-    "Returns\n"
-    "----------\n"
-    "    A new NMSLIB Index.\n");
+        }
+  
+        return ret;
+      },
+      py::arg("space") = "cosinesimil",
+      py::arg("space_params") = py::none(),
+      py::arg("method") = "hnsw",
+      py::arg("data_type") = DATATYPE_DENSE_VECTOR,
+      py::arg("dtype") = DISTTYPE_FLOAT,
+      py::arg("dist_uint_type") = DISTTYPE_DEFAULT,
+      "This function initializes a new NMSLIB index\n\n"
+      "Parameters\n"
+      "----------\n"
+      "space: str optional\n"
+      "    The metric space to create for this index\n"
+      "space_params: dict optional\n"
+      "    Parameters for configuring the space\n"
+      "method: str optional\n"
+      "    The index method to use\n"
+      "data_type: nmslib.DataType optional\n"
+      "    The type of data to index (dense/sparse/string vectors)\n"
+      "\n"
+      "Returns\n"
+      "----------\n"
+      "    A new NMSLIB Index.\n");
 
   // Export Different Types of NMS Indices and spaces
   // hiding in a submodule to avoid cluttering up main namespace
@@ -525,6 +538,8 @@ PYBIND11_PLUGIN(nmslib) {
     "Contains Indexes and Spaces for different Distance Types");
   exportIndex<int>(&dist_module);
   exportIndex<float>(&dist_module);
+  exportIndex<float, int>(&dist_module);
+  exportIndex<int, float>(&dist_module);
 
   exportLegacyAPI(&m);
 
@@ -533,12 +548,12 @@ PYBIND11_PLUGIN(nmslib) {
 #endif
 }
 
-template <typename dist_t>
+template <typename dist_t, typename dist_uint_t = dist_t>
 void exportIndex(py::module * m) {
   // Export the index
-  std::string index_name = distName<dist_t>() + "Index";
-  py::class_<IndexWrapper<dist_t>>(*m, index_name.c_str())
-    .def("createIndex", &IndexWrapper<dist_t>::createIndex,
+  std::string index_name = distName<dist_t, dist_uint_t>() + "Index";
+  py::class_<IndexWrapper<dist_t, dist_uint_t>>(*m, index_name.c_str())
+    .def("createIndex", &IndexWrapper<dist_t, dist_uint_t>::createIndex,
       py::arg("index_params") = py::none(),
       py::arg("print_progress") = false,
       "Creates the index, and makes it available for querying\n\n"
@@ -549,7 +564,7 @@ void exportIndex(py::module * m) {
       "print_progress: bool optional\n"
       "    Whether or not to display progress bar when creating index\n")
 
-    .def("knnQuery", &IndexWrapper<dist_t>::knnQuery,
+    .def("knnQuery", &IndexWrapper<dist_t, dist_uint_t>::knnQuery,
       py::arg("vector"), py::arg("k") = 10,
       "Finds the approximate K nearest neighbours of a vector in the index \n\n"
       "Parameters\n"
@@ -566,7 +581,7 @@ void exportIndex(py::module * m) {
       "distances: array_like.\n"
       "    A 1D vector of the distance to each nearest neigbhour.\n")
 
-    .def("knnQueryBatch", &IndexWrapper<dist_t>::knnQueryBatch,
+    .def("knnQueryBatch", &IndexWrapper<dist_t, dist_uint_t>::knnQueryBatch,
       py::arg("queries"), py::arg("k") = 10, py::arg("num_threads") = 0,
       "Performs multiple queries on the index, distributing the work over \n"
       "a thread pool\n\n"
@@ -584,7 +599,7 @@ void exportIndex(py::module * m) {
       "list:\n"
       "   A list of tuples of (ids, distances)\n ")
 
-    .def("loadIndex", &IndexWrapper<dist_t>::loadIndex,
+    .def("loadIndex", &IndexWrapper<dist_t, dist_uint_t>::loadIndex,
       py::arg("filename"),
       py::arg("load_data") = false,
       "Loads the index from disk\n\n"
@@ -595,7 +610,7 @@ void exportIndex(py::module * m) {
       "load_data: bool optional\n"
       "    Whether or not to load previously saved data.\n")
 
-    .def("saveIndex", &IndexWrapper<dist_t>::saveIndex,
+    .def("saveIndex", &IndexWrapper<dist_t, dist_uint_t>::saveIndex,
       py::arg("filename"),
       py::arg("save_data") = false,
       "Saves the index and/or data to disk\n\n"
@@ -607,7 +622,7 @@ void exportIndex(py::module * m) {
       "    Whether or not to save data\n")
 
     .def("setQueryTimeParams",
-      [](IndexWrapper<dist_t> * self, py::object params) {
+      [](IndexWrapper<dist_t, dist_uint_t> * self, py::object params) {
         self->index->SetQueryTimeParams(loadParams(params));
       }, py::arg("params") = py::none(),
       "Sets parameters used in knnQuery.\n\n"
@@ -616,7 +631,7 @@ void exportIndex(py::module * m) {
       "params: dict\n"
       "    A dictionary of params to use in querying. Setting params to None will reset\n")
 
-    .def("addDataPoint", &IndexWrapper<dist_t>::addDataPoint,
+    .def("addDataPoint", &IndexWrapper<dist_t, dist_uint_t>::addDataPoint,
       py::arg("id"),
       py::arg("data"),
       "Adds a single datapoint to the index\n\n"
@@ -631,7 +646,7 @@ void exportIndex(py::module * m) {
       "int\n"
       "    The position the item was added at\n")
 
-    .def("addDataPointBatch", &IndexWrapper<dist_t>::addDataPointBatch,
+    .def("addDataPointBatch", &IndexWrapper<dist_t, dist_uint_t>::addDataPointBatch,
       py::arg("data"),
       py::arg("ids") = py::none(),
       "Adds multiple datapoints to the index\n\n"
@@ -647,16 +662,19 @@ void exportIndex(py::module * m) {
       "int\n"
       "    The number of items added\n")
 
-    .def_readonly("dataType", &IndexWrapper<dist_t>::data_type)
-    .def_readonly("distType", &IndexWrapper<dist_t>::dist_type)
-    .def("__len__", &IndexWrapper<dist_t>::size)
-    .def("__getitem__", &IndexWrapper<dist_t>::at)
-    .def("getDistance", &IndexWrapper<dist_t>::getDistance)
-    .def("__repr__", &IndexWrapper<dist_t>::repr);
+    .def_readonly("dataType", &IndexWrapper<dist_t, dist_uint_t>::data_type)
+    .def_readonly("distType", &IndexWrapper<dist_t, dist_uint_t>::dist_type)
+    .def_readonly("distUintType", &IndexWrapper<dist_t, dist_uint_t>::dist_uint_type)
+    .def("__len__", &IndexWrapper<dist_t, dist_uint_t>::size)
+    .def("__getitem__", &IndexWrapper<dist_t, dist_uint_t>::at)
+    .def("getDistance", &IndexWrapper<dist_t, dist_uint_t>::getDistance)
+    .def("__repr__", &IndexWrapper<dist_t, dist_uint_t>::repr);
 }
 
 template <> std::string distName<int>() { return "Int"; }
 template <> std::string distName<float>() { return "Float"; }
+template <> std::string distName<float, int>() { return "FloatWithIntInput"; }
+template <> std::string distName<int, float>() { return "IntWithFloatInput"; }
 
 void freeAndClearObjectVector(ObjectVector& data) {
   for (auto datum : data) {
@@ -687,7 +705,8 @@ AnyParams loadParams(py::object o) {
         ret.AddChangeParam(key, py::cast<int>(value));
       } else if (py::isinstance<py::float_>(value)) {
         ret.AddChangeParam(key, py::cast<double>(value));
-      } else if (py::isinstance<py::str>(value)) {
+      } else if (py::isinstance<py::str>(value))
+      {
         ret.AddChangeParam(key, py::cast<std::string>(value));
       } else {
         std::stringstream err;
@@ -717,7 +736,7 @@ void exportLegacyAPI(py::module * m) {
     // Also ensure data is a matrix of the right type
     DataType data_type = py::cast<DataType>(self.attr("dataType"));
     if (data_type == DATATYPE_DENSE_VECTOR) {
-      DistType dist_type = py::cast<DistType>(self.attr("distType"));
+      DistType dist_type = py::cast<DistType>(self.attr("distUintType"));
       if (((dist_type == DISTTYPE_FLOAT) && (!py::isinstance<py::array_t<float>>(data)))  ||
           ((dist_type == DISTTYPE_INT) && (!py::isinstance<py::array_t<int>>(data)))) {
         throw py::value_error("Invalid datatype for data in addDataPointBatch");
